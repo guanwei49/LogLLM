@@ -128,7 +128,7 @@ class LogLLM(nn.Module):
                 is_trainable=is_train_mode,
                 torch_dtype=torch.float16,
             )
-            self.projector.load_state_dict(torch.load(projector_path, map_location=device))
+            self.projector.load_state_dict(torch.load(projector_path, map_location=device, weights_only=True))
         else:
             print(f'Creating peft model.')
             Bert_peft_config = LoraConfig(task_type=TaskType.FEATURE_EXTRACTION,
