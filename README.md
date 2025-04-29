@@ -35,7 +35,7 @@ typeface.
 |   LogLLM   |    &#10008;    |   0.994   | **1.000** | **0.997** |   0.861   |   0.979   | **0.916** | **0.992** |   0.926   | **0.958** |  **0.966**  |    0.966    |  **0.966**  |  **0.959**  |
 
 ## Using Our Code to Reproduce the Results
-1. Set Up the Environment.
+### 1. Set Up the Environment.
 - **Software Requirements**:
   - Python: 3.8.20
   - CUDA: 12.1
@@ -57,8 +57,7 @@ pip install tqdm
 ```
 
 
-2. Download open-source LLM [Meta-Llama-3-8B](https://huggingface.co/meta-llama/Meta-Llama-3-8B/tree/main), and
-   Bert [bert-base-uncased](https://huggingface.co/google-bert/bert-base-uncased).
+### 2. Download open-source LLM [Meta-Llama-3-8B](https://huggingface.co/meta-llama/Meta-Llama-3-8B/tree/main), and Bert [bert-base-uncased](https://huggingface.co/google-bert/bert-base-uncased).
 
 ```
    ├── Meta-Llama-3-8B
@@ -84,7 +83,7 @@ pip install tqdm
    │ └── vocab.txt
 ```
 
-3. Prepare training and testing data
+### 3. Prepare training and testing data
 
 - Download BGL/HDFS_v1/Thunderbird dataset from [here](https://github.com/logpai/loghub). Download Liberty dataset
   from [here](http://0b4af6cdc2f0c5998459-c0245c5c937c5dedcca3f1764ecc9b2f.r43.cf2.rackcdn.com/hpc4/liberty2.gz).
@@ -120,8 +119,7 @@ pip install tqdm
   Run ```python prepareData.session_window.py```  from the root directory to generate training and testing data.
   Training and testing data will be saved in {data_dir}
 
-4. Train our proposed deep model. This step can be skipped by directly using our fine-tuned model (
-   ft_model_[dataset_name])
+### 4. Train our proposed deep model. This step can be skipped by directly using our fine-tuned model (ft_model_[dataset_name])
 
 - Set the following variations in **train.py**
    ```
@@ -132,7 +130,7 @@ pip install tqdm
    ```
 - Run ```python train.py``` from the root directory to get fine-tuned model.
 
-5. Evaluate on test dataset.
+### 5. Evaluate on test dataset.
 
 - Set the following variations in **eval.py**
    ```
