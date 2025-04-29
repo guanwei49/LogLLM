@@ -8,19 +8,19 @@ from helper import sliding_window, fixedSize_window, structure_log
 #### for Thunderbird, Liberty, BGL
 
 
-data_dir = r'/mnt/public/gw/SyslogData/BGL'
-log_name = "BGL.log"
+data_dir = r'D:\data\sysLog\Thunderbird'
+log_name = "Thunderbird.log"
 
-start_line = 0
-end_line = None
+# start_line = 0
+# end_line = None
 
 # # Liberty
 # start_line = 40000000
 # end_line = 45000000
 
 # # thunderbird
-# start_line = 160000000
-# end_line = 170000000
+start_line = 160000000
+end_line = 170000000
 
 output_dir = data_dir
 

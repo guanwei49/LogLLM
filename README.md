@@ -35,12 +35,27 @@ typeface.
 |   LogLLM   |    &#10008;    |   0.994   | **1.000** | **0.997** |   0.861   |   0.979   | **0.916** | **0.992** |   0.926   | **0.958** |  **0.966**  |    0.966    |  **0.966**  |  **0.959**  |
 
 ## Using Our Code to Reproduce the Results
+1. Set Up the Environment.
+- **Software Requirements**:
+  - Python: 3.8.20
+  - CUDA: 12.1
 
-1. Create conda environment.
-
+- **Choose one of the following methods to install dependencies**:
+ 
+--- Option 1: Install from ```requirements.txt```
 ```
  conda install --yes --file requirements.txt # You may need to downgrade the torch using pip to match the CUDA version
 ```
+
+--- Option 2: Install packages individually
+```
+conda create -n logllm python=3.8
+pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+pip install transformers datasets peft accelerate bitsandbytes safetensors
+pip install scikit-learn
+pip install tqdm
+```
+
 
 2. Download open-source LLM [Meta-Llama-3-8B](https://huggingface.co/meta-llama/Meta-Llama-3-8B/tree/main), and
    Bert [bert-base-uncased](https://huggingface.co/google-bert/bert-base-uncased).
