@@ -125,7 +125,7 @@ pip install tqdm
    ```
    Bert_path = # i.e., r"/mnt/public/gw/LLM_model/bert-base-uncased"
    Llama_path = # i.e., r"/mnt/public/gw/LLM_model/Meta-Llama-3-8B"
-   dataset_name = # i.e., 'BGL'
+   dataset_name = # i.e., 'Liberty'
    data_path =  # i.e., r'/mnt/public/gw/SyslogData/{dataset_name}/train.csv'.format(dataset_name)
    ```
 - Run ```python train.py``` from the root directory to get fine-tuned model.
@@ -136,9 +136,9 @@ pip install tqdm
    ```
    Bert_path = # i.e., r"/mnt/public/gw/LLM_model/bert-base-uncased"
    Llama_path = # i.e., r"/mnt/public/gw/LLM_model/Meta-Llama-3-8B"
-   dataset_name = # i.e., 'BGL'
+   dataset_name = # i.e., 'Liberty'
    data_path =  # i.e., r'/mnt/public/gw/SyslogData/{dataset_name}/test.csv'.format(dataset_name)
    ```
-- We have provided the test file for the BGL dataset, which can be accessed
-  at [here](https://drive.google.com/file/d/1aMKzhrLklnk5RX78UBc3Zx3voIIGnQzo/view?usp=sharing).
+- We have provided the test file for the BGL and Liberty dataset, which can be accessed
+  at [here (BGL test file)](https://drive.google.com/file/d/1aMKzhrLklnk5RX78UBc3Zx3voIIGnQzo/view?usp=sharing), and [here (Liberty test file)](https://drive.google.com/file/d/1-Z2FrsRSm8ojfOW1555obNyU6B_aRDTH/view?usp=sharing)
 - Run ```python eval.py``` from the root directory. 
