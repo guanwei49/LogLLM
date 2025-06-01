@@ -3,9 +3,10 @@ import re
 from pathlib import Path
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from model import LogLLM
-from customDataset import CustomDataset
+from customDataset import CustomDataset, CustomCollator
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 max_content_len = 100
@@ -30,39 +31,37 @@ f'max_seq_len: {max_seq_len}\n'
 f'device: {device}')
 
 
-def evalModel(model, dataset, batch_size):
+def evalModel(model, dataloader):
     model.eval()
-    pre = 0
 
     preds = []
 
     with torch.no_grad():
-        indexes = [i for i in range(len(dataset))]
-        for bathc_i in tqdm(range(batch_size, len(indexes) + batch_size, batch_size)):
-            if bathc_i <= len(indexes):
-                this_batch_indexes = list(range(pre, bathc_i))
-            else:
-                this_batch_indexes = list(range(pre, len(indexes)))
-            pre = bathc_i
+        for bathc_i in tqdm(dataloader):
+            inputs = bathc_i['inputs']
+            seq_positions = bathc_i['seq_positions']
 
-            this_batch_seqs, _ = dataset.get_batch(this_batch_indexes)
-            outputs_ids = model(this_batch_seqs)
+            inputs = inputs.to(device)
+            seq_positions = seq_positions
+
+            outputs_ids = model(inputs,seq_positions)
             outputs = model.Llama_tokenizer.batch_decode(outputs_ids)
 
             # print(outputs)
 
             for text in outputs:
-                matches = re.findall(r' (.*?)\.<|end_of_text|>', text)
-                if len(matches) > 0:
-                    preds.append(matches[0])
+                match = re.search(r'normal|anomalous', text, re.IGNORECASE)
+                if match:
+                    preds.append(match.group())
                 else:
+                    print(f'error :{text}')
                     preds.append('')
 
     preds_copy = np.array(preds)
     preds = np.zeros_like(preds_copy,dtype=int)
     preds[preds_copy == 'anomalous'] = 1
     preds[preds_copy != 'anomalous'] = 0
-    gt = dataset.get_label()
+    gt = dataloader.dataset.get_label()
 
     precision = precision_score(gt, preds, average="binary", pos_label=1)
     recall = recall_score(gt, preds, average="binary", pos_label=1)
@@ -88,4 +87,16 @@ if __name__ == '__main__':
     dataset = CustomDataset(data_path)
     model = LogLLM(Bert_path, Llama_path, ft_path=ft_path, is_train_mode=False, device=device,
                    max_content_len=max_content_len, max_seq_len=max_seq_len)
-    evalModel(model, dataset, batch_size)
+
+    tokenizer = model.Bert_tokenizer
+    collator = CustomCollator(tokenizer, max_seq_len=max_seq_len, max_content_len=max_content_len)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        collate_fn=collator,
+        num_workers=4,
+        shuffle=False,
+        drop_last=False
+    )
+
+    evalModel(model, dataloader)

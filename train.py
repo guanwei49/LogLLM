@@ -4,9 +4,9 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from torch import nn
-import random
 from model import LogLLM
-from customDataset import CustomDataset
+from torch.utils.data import DataLoader
+from customDataset import CustomDataset, CustomCollator, BalancedSampler
 from torch import optim
 
 
@@ -14,7 +14,7 @@ n_epochs_1 = 1
 n_epochs_2_1 = 1
 n_epochs_2_2 = 1
 n_epochs_3 = 2
-dataset_name = 'Liberty'  # 'Thunderbird' 'HDFS_v1' 'BGL'   'Liberty'
+dataset_name = 'BGL'  # 'Thunderbird' 'HDFS_v1' 'BGL'   'Liberty'
 batch_size = 16
 micro_batch_size = 4
 gradient_accumulation_steps = batch_size // micro_batch_size
@@ -69,7 +69,7 @@ def print_number_of_trainable_model_parameters(model):
 
 
 
-def trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_epochs, lr,num_samples=None):
+def trainModel(model, dataloader, gradient_accumulation_steps, n_epochs, lr):
     criterion = nn.CrossEntropyLoss(reduction='mean')
 
     trainable_model_params = print_number_of_trainable_model_parameters(model)
@@ -81,18 +81,8 @@ def trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_
     special_normal_tokens = set(normal_tokens) - set(anomalous_tokens)
     special_anomalous_tokens = set(anomalous_tokens) - set(normal_tokens)
 
-    indexes = [i for i in range(len(dataset))]
-    if dataset.num_less/len(dataset) < min_less_portion:
-        less_should_num = int((min_less_portion*dataset.num_majority) / (1 - min_less_portion))
-        add_num =  less_should_num - dataset.num_less
-        indexes = indexes + np.random.choice(dataset.less_indexes , add_num).tolist()
-
-    if num_samples is None:
-        total_steps = (len(indexes) * n_epochs) / micro_batch_size
-    else:
-        num_samples = min(num_samples, len(indexes))
-        total_steps = (num_samples * n_epochs) / micro_batch_size
-    scheduler_step = int(total_steps/11)  #update 10 times lr
+    total_steps = n_epochs * len(dataloader)
+    scheduler_step = int(total_steps / 10)
 
     print(f'scheduler_step: {scheduler_step}')
 
@@ -100,28 +90,26 @@ def trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_
     for epoch in range(int(n_epochs)):
         total_acc, total_acc_count, total_count, train_loss = 0, 0, 0, 0
 
-        # 自定义的dataloader
-        random.shuffle(indexes)   # 打乱顺序
-        end = len(indexes) + 1
-
-        if num_samples is not None:
-            end = min(num_samples,end)
-
-        pbar = tqdm(range(micro_batch_size, end, micro_batch_size), desc='Epoch {}/{}'.format(epoch, n_epochs))
+        pbar = tqdm(dataloader, desc='Epoch {}/{}'.format(epoch, n_epochs))
         for i_th, bathc_i in enumerate(pbar):
             steps += 1
 
-            this_batch_indexes = indexes[bathc_i - micro_batch_size: bathc_i]
-            this_batch_seqs, this_batch_labels = dataset.get_batch(this_batch_indexes)
+            inputs= bathc_i['inputs']
+            seq_positions= bathc_i['seq_positions']
+            labels = bathc_i['labels']
 
-            outputs, targets = model.train_helper(this_batch_seqs, this_batch_labels)
+            inputs = inputs.to(device)
+            seq_positions = seq_positions
+
+            outputs, targets = model.train_helper(inputs, seq_positions, labels)
 
             loss = criterion(outputs, targets)
+            loss = loss / gradient_accumulation_steps
 
             loss.backward()
             # print(loss)
 
-            if ((i_th + 1) % gradient_accumulation_steps) == 0:
+            if ((i_th + 1) % gradient_accumulation_steps == 0) or ((i_th + 1) == len(dataloader)):
                 # optimizer the net
                 optimizer.step()  # 更新网络参数
                 optimizer.zero_grad()  # reset grdient # 清空过往梯度
@@ -133,13 +121,13 @@ def trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_
             total_acc += (outputs.argmax(1)[acc_mask] == targets[acc_mask]).sum().item()
             total_acc_count += acc_mask.sum()
 
-            train_loss += loss.item() * targets.size(0)
+            train_loss += loss.item() * gradient_accumulation_steps * targets.size(0)
 
             total_count += targets.size(0)
 
             if steps % scheduler_step == 0:
                 scheduler.step()
-            pbar.set_postfix(lr=scheduler.get_last_lr()[0])
+            pbar.set_postfix(lr=scheduler.get_last_lr()[0], loss = loss.item() * gradient_accumulation_steps)
 
             if steps % 10000 ==0:   # every 10000 steps, print loss and acc
                 train_loss_epoch = train_loss / total_count
@@ -159,26 +147,47 @@ def trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_
 
 if __name__ == '__main__':
     print(f'dataset: {data_path}')
-    dataset = CustomDataset(data_path)
+    dataset = CustomDataset(data_path, drop_duplicates=False)
 
     model = LogLLM(Bert_path, Llama_path, device = device, max_content_len = max_content_len, max_seq_len = max_seq_len)
     # model = LogLLM(Bert_path, Llama_path, ft_path= ft_path, device = device, max_content_len = max_content_len, max_seq_len = max_seq_len)
 
+    tokenizer = model.Bert_tokenizer
+    collator = CustomCollator(tokenizer, max_seq_len=max_seq_len, max_content_len=max_content_len)
+
+    dataloader_max_samples = DataLoader(
+        dataset,
+        batch_size=micro_batch_size,
+        num_workers=4,
+        sampler=BalancedSampler(dataset, target_ratio=min_less_portion, max_samples=1000),
+        collate_fn=collator,
+        drop_last=True
+    )
     # phase 1
     print("*" * 10 + "Start training Llama" + "*" * 10)
     model.set_train_only_Llama()
-    trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_epochs_1, lr_1, num_samples=1000)
+    trainModel(model, dataloader_max_samples, gradient_accumulation_steps, n_epochs_1, lr_1)
+    del dataloader_max_samples
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=micro_batch_size,
+        num_workers=4,
+        sampler=BalancedSampler(dataset, target_ratio=min_less_portion),
+        collate_fn=collator,
+        drop_last=True
+    )
     # phase 2-1
     print("*" * 10 + "Start training projector" + "*" * 10)
     model.set_train_only_projector()
-    trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_epochs_2_1, lr_2_1)
+    trainModel(model, dataloader, gradient_accumulation_steps, n_epochs_2_1, lr_2_1)
     # phase 2-2
     print("*" * 10 + "Start training projector and Bert" + "*" * 10)
     model.set_train_projectorAndBert()
-    trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_epochs_2_2, lr_2_2)
+    trainModel(model, dataloader, gradient_accumulation_steps, n_epochs_2_2, lr_2_2)
     # phase 3
     model.set_finetuning_all()
     print("*" * 10 + "Start training entire model" + "*" * 10)
-    trainModel(model, dataset, micro_batch_size, gradient_accumulation_steps, n_epochs_3, lr_3)
+    trainModel(model, dataloader, gradient_accumulation_steps, n_epochs_3, lr_3)
 
     model.save_ft_model(ft_path)

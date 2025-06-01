@@ -2,8 +2,7 @@ import os.path
 
 import peft
 import torch
-from transformers import BertTokenizerFast, BertModel, BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
-import pandas as pd
+from transformers import BertTokenizerFast, BertModel, BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM, DynamicCache
 import numpy as np
 from torch import nn
 from peft import PeftModel, LoraConfig, prepare_model_for_kbit_training, get_peft_model, TaskType
@@ -196,21 +195,15 @@ class LogLLM(nn.Module):
                 param.requires_grad = True
 
 
-    def train_helper(self, sequences_, labels):
+    def train_helper(self, inputs, seq_positions, labels):
         '''
-        :param sequences: list of list: [seq, seq, ...,seq]  , seq:[item, ..., item]
-        :param labels:  list of labels, label is one of ['anomalous', 'normal']
+        :param inputs: the tokenized Sequences for BERT. Sequences are concatenated.
+        :param: seq_positions:
+        :param labels: np.array of labels, label is one of ['anomalous', 'normal']
         :return: Llama_output[label_mask], target_tokens_ids[target_tokens_atts]
         '''
+        batch_size = len(labels)
 
-        sequences = [sequence[:self.max_seq_len] for sequence in sequences_]
-
-        batch_size = len(sequences)
-        data, seq_positions = merge_data(sequences)
-        seq_positions = seq_positions[1:]
-
-        inputs = self.Bert_tokenizer(data, return_tensors="pt", max_length=self.max_content_len, padding=True,
-                                     truncation=True).to(self.device)
 
         outputs = self.Bert_model(**inputs).pooler_output  # dim = 768
         outputs = outputs.float()
@@ -261,20 +254,13 @@ class LogLLM(nn.Module):
 
         return Llama_output[label_mask], target_tokens_ids[target_tokens_atts]
 
-    def forward(self, sequences_):
+    def forward(self, inputs, seq_positions):
         '''
-        :param sequences: list of list: [seq, seq, ...,seq]  , seq:[item, ..., item]
+        :param inputs: the tokenized Sequences for BERT. Sequences are concatenated.
+        :param seq_positions:
         :return: Generated answer (token id).
         '''
-
-        sequences = [sequence[:self.max_seq_len] for sequence in sequences_]
-
-        batch_size = len(sequences)
-        data, seq_positions = merge_data(sequences)
-        seq_positions = seq_positions[1:]
-
-        inputs = self.Bert_tokenizer(data, return_tensors="pt", max_length=self.max_content_len, padding=True,
-                                     truncation=True).to(self.device)
+        batch_size = len(seq_positions) + 1
 
         outputs = self.Bert_model(**inputs).pooler_output  # dim = 768
         outputs = outputs.float()
@@ -317,34 +303,64 @@ class LogLLM(nn.Module):
 
         this_peer_finished = False
         answer = []
+        past_key_values = DynamicCache()  # 新缓存对象
+        seq_len = inputs_embeds.shape[1]
+
+        # 当前缓存中的 token 位置信息（用于 Rotary Embedding 等）
+        cache_position = torch.arange(seq_len, dtype=torch.long, device=inputs_embeds.device)
+
         while not this_peer_finished:
-            Llama_output = self.Llama_model(inputs_embeds=inputs_embeds, attention_mask=attention_mask).logits
-            next_token_logits = Llama_output[:, -1, :]
+            if len(past_key_values) == 0:
+                # 初始轮：传完整 inputs_embeds
+                outputs = self.Llama_model(
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    cache_position=cache_position,
+                    use_cache=True,
+                )
+                # 更新 cache_position（每步 +1）
+                cache_position = cache_position[-1:] + 1
+            else:
+                # 后续轮：只传一个 token 的 embedding（即上一步预测的 token）
+                outputs = self.Llama_model(
+                    inputs_embeds=next_tokens_embeddings[:, None, :],
+                    attention_mask=attention_mask,
+                    past_key_values=past_key_values,
+                    cache_position=cache_position,
+                    use_cache=True,
+                )
+                # 更新 cache_position（每步 +1）
+                cache_position = cache_position + 1
+
+            logits = outputs.logits
+            next_token_logits = logits[:, -1, :]
             next_tokens = torch.argmax(next_token_logits, dim=-1)
 
+            # 应对结束符逻辑
             next_tokens = next_tokens * unfinished_sequences + pad_token_id * (1 - unfinished_sequences)
-
-            # print(next_tokens)
             answer.append(next_tokens)
 
-            if type(self.Llama_model) == peft.peft_model.PeftModelForCausalLM:
+            # obtain embedding of next token
+            if isinstance(self.Llama_model, peft.peft_model.PeftModelForCausalLM):
                 next_tokens_embeddings = self.Llama_model.model.model.embed_tokens(next_tokens)
             else:
                 next_tokens_embeddings = self.Llama_model.model.embed_tokens(next_tokens)
 
-            inputs_embeds = torch.cat([inputs_embeds, next_tokens_embeddings[:,None,:]], dim=1)
-            attention_mask = torch.cat([attention_mask, unfinished_sequences[:,None]], dim=1)
+            # update attention_mask
+            attention_mask = torch.cat([attention_mask, unfinished_sequences[:, None]], dim=1)
 
             if eos_token_id_tensor is not None:
                 unfinished_sequences = unfinished_sequences.mul(
-                    next_tokens.tile(eos_token_id_tensor.shape[0], 1).ne(eos_token_id_tensor.unsqueeze(1)).prod(dim=0)
+                    next_tokens.tile(eos_token_id_tensor.shape[0], 1)
+                    .ne(eos_token_id_tensor.unsqueeze(1))
+                    .prod(dim=0)
                 )
 
-                # stop when each sentence is finished
                 if unfinished_sequences.max() == 0:
                     this_peer_finished = True
 
-                # stop if we exceed the maximum answer length
+            # stop if we exceed the maximum answer length
             if  5 < len(answer):
                 this_peer_finished = True
 
