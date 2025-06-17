@@ -82,7 +82,7 @@ def trainModel(model, dataloader, gradient_accumulation_steps, n_epochs, lr):
     special_anomalous_tokens = set(anomalous_tokens) - set(normal_tokens)
 
     total_steps = n_epochs * len(dataloader)
-    scheduler_step = int(total_steps / 10)
+    scheduler_step = max(int(total_steps / 10), 1)
 
     print(f'scheduler_step: {scheduler_step}')
 
