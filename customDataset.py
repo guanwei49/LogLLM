@@ -109,7 +109,7 @@ class BalancedSampler(Sampler):
         )
 
         self.minority_count = max(int((self.target_ratio * len(self.majority_indices)) / (1 - self.target_ratio)), len(self.minority_indices))
-        self.total_size = self.minority_count + len(self.anomalous_indices)
+        self.total_size = self.minority_count + len(self.majority_indices)
 
         if self.max_samples is not None:
             if self.max_samples > self.total_size:
