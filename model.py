@@ -304,10 +304,7 @@ class LogLLM(nn.Module):
         this_peer_finished = False
         answer = []
         past_key_values = DynamicCache()  # 新缓存对象
-        seq_len = inputs_embeds.shape[1]
 
-        # 当前缓存中的 token 位置信息（用于 Rotary Embedding 等）
-        cache_position = torch.arange(seq_len, dtype=torch.long, device=inputs_embeds.device)
 
         while not this_peer_finished:
             if len(past_key_values) == 0:
@@ -316,22 +313,16 @@ class LogLLM(nn.Module):
                     inputs_embeds=inputs_embeds,
                     attention_mask=attention_mask,
                     past_key_values=past_key_values,
-                    cache_position=cache_position,
                     use_cache=True,
                 )
-                # 更新 cache_position（每步 +1）
-                cache_position = cache_position[-1:] + 1
             else:
                 # 后续轮：只传一个 token 的 embedding（即上一步预测的 token）
                 outputs = self.Llama_model(
                     inputs_embeds=next_tokens_embeddings[:, None, :],
                     attention_mask=attention_mask,
                     past_key_values=past_key_values,
-                    cache_position=cache_position,
                     use_cache=True,
                 )
-                # 更新 cache_position（每步 +1）
-                cache_position = cache_position + 1
 
             logits = outputs.logits
             next_token_logits = logits[:, -1, :]
